@@ -1,0 +1,79 @@
+import folium
+import polyline
+import pandas as pd 
+from datetime import datetime as dt
+import re
+import os
+
+
+def get_date(string):
+    """Return date in YYYY-MM-DD format"""
+    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0))
+
+def filter_by_date(start_date,end_date,df):
+    """Filters the dataframe between two given dates"""
+    start_date = dt.strptime(start_date, '%Y-%m-%d')
+    end_date = dt.strptime(end_date,'%Y-%m-%d')
+    df = df[(df['start_date']>= start_date)&(df['start_date']<= end_date)]
+    return df
+    
+def get_long_coordinates(encoded_route):
+    """Get longitude coordinates for given run"""
+    coordinates = polyline.decode(encoded_route)
+    ride_longitudes = [coordinate[1] for coordinate in coordinates]
+    return ride_longitudes
+
+def get_lat_coordinates(encoded_route):
+    """Get latitude coordinates for given run"""
+
+    coordinates = polyline.decode(encoded_route)
+    ride_latitudes = [coordinate[0] for coordinate in coordinates]
+    return ride_latitudes
+
+def get_route_coordinates(lat,long):
+    """Creates list of route coordinates for a run"""
+    coords = []
+    for i in range(len(lat)):
+        coords.append((lat[i],long[i]))
+    return coords
+
+if __name__ == '__main__':
+    directory = os.getcwd()
+    df = pd.read_json(directory +"\\strava_data")
+    df['start_date'] = df['start_date'].apply(get_date)
+    df = filter_by_date("2024-01-01","2025-06-01",df)
+    df['lat_coords'] = df['map.summary_polyline'].apply(get_lat_coordinates)
+    df['long_coords'] = df['map.summary_polyline'].apply(get_long_coordinates)
+    df['route_coords'] = df[['lat_coords','long_coords']].apply(lambda x: get_route_coordinates(x.lat_coords, x.long_coords), axis=1)
+    
+    #find average longitude and latitude to place at centre of map
+    ave_long = df['long_coords'].apply(lambda x: sum(x)/(len(x)or 1)).mean()
+    ave_lat = df['lat_coords'].apply(lambda x: sum(x)/(len(x)or 1)).mean()
+    
+    
+    route_map = folium.Map(
+        location=[ave_lat, ave_long],
+        zoom_start=14,
+        tiles="Cartodb Positron",
+        width=1024,
+        height=600,
+    )
+    
+    coord_big = []
+    for idx,x in df[['route_coords']].iterrows():
+        if x.iloc[0] != []:
+            folium.PolyLine(x.iloc[0], weight=1,color='orange', popup=folium.Popup(
+                        html=(
+                              'Date: '
+                            + str(df['start_date'].loc[idx])
+                            + '<br>'
+                            + 'Distance: '
+                            + str(df['distance'].loc[idx])
+                            + ' miles'
+                            + '<br>'
+                        ),
+                        min_width=100,
+                        max_width=100,
+                    ),).add_to(route_map)
+    
+    
