@@ -1,0 +1,80 @@
+import pandas as pd
+import requests
+import urllib3
+import os
+import re
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+auth_url = 'https://www.strava.com/oauth/token'
+activities_url = 'https://www.strava.com/api/v3/athlete/activities'
+directory = os.getcwd()
+client_id, client_secret, code_val = open(directory+"\\client_secrets.txt").read().strip().split(",")
+payload = {
+    'client_id': client_id,
+    'client_secret': client_secret,
+    'code': code_val,
+    "grant_type" : "authorization_code",
+    'f': 'json'
+}
+print("Requesting Token...\n")
+res = requests.post(auth_url, data=payload, verify=False)       #get authorisation code 
+
+
+payload = {"client_id" : client_id,
+"client_secret" : client_secret,
+"refresh_token" : res.json()["refresh_token"],
+"grant_type" : "refresh_token",
+"f" : "json"
+}
+res = requests.post(auth_url, data=payload, verify=False)
+
+access_token = res.json()['access_token']
+print("Access Token = {}\n".format(access_token))
+
+header = {'Authorization': 'Bearer ' + access_token}
+param = {'per_page': 200, 'page': 1}
+
+def get_all_data(page_number):
+"""Loop through all activity pages and create data frame of all activities"""
+    page_number = page_number
+    new_page = True
+    data = []
+    while new_page:
+        print(f'Collecting page {page_number}')
+        get_strava = requests.get(activities_url, headers=header, params={'per_page': 200, 'page': f'{page_number}'}).json()
+        data.extend(get_strava)
+        new_page = get_strava #if empty stop the loop
+        page_number += 1
+    df = pd.json_normalize(data)
+    return df
+
+def save_dataframe(df):
+"""Saves the data frame"""
+    directory = os.getcwd()
+    os.makedirs(directory+'\\data\\',exist_ok=True)
+    df.to_json(directory+"\\data\\strava_data",index = False,date_format='iso')
+    print('Saved data')
+    
+    
+def metres_to_miles(distance):
+    return round(distance/1609.34,2)
+
+def seconds_to_minutes(time):
+    return time/60
+
+def get_date(string):
+"""Returns date in YYYY-MM-DD form"""
+    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0))
+
+def process_df(df):
+"""Applies basic processing to dataframe - converts time to minutes, distance to miles, and date to datetime"""
+    df[['moving_time','elapsed_time']] =  df[['moving_time','elapsed_time']].apply(seconds_to_minutes)
+    df['distance'] = df['distance'].apply(metres_to_miles)
+    df['start_date'] = df['start_date'].apply(get_date)
+    return df
+
+df = get_all_data(1)
+df = pd.read_json(r"C:\\Users\\gregk\\OneDrive\\Documents\\Python Scripts\\running\\strava_data")
+df = process_df(df)
+save_dataframe(df)
