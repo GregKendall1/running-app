@@ -1,0 +1,67 @@
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+import datetime
+
+def get_date(string):
+    """Return date in YYYY-MM-DD format"""
+    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0)).date()
+
+def group_weekly_average(df,column):
+    grouped_df = df[['start_date',column]]
+    grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column].mean().reset_index().sort_values('start_date')
+    return grouped_df
+
+def speed_to_min_per_mile(speed):
+    """Converts speed to minutes per mile"""
+    if speed != 0:
+        return 60/(speed*2.23694)
+    return 0
+
+def filter_by_dates(df,start_date,end_date):
+    """Filters dataframe between two given dates"""
+    df_filtered = df[(df['start_date'] <= end_date) & (start_date <= df['start_date'])]
+    return df_filtered
+
+def clean_df(df):
+    """Cleans dataframe in order to plot"""
+    df['start_date'] = df['start_date'].apply(get_date)
+    df['average_speed'] = df['average_speed'].apply(speed_to_min_per_mile)
+    q1 = df['average_speed'].quantile(0.005)
+    q2 = df['average_speed'].quantile(0.995)
+    df = df[(df['average_speed'] <= q2)&(df['average_speed']>=q1)]
+    return df
+
+def plot_histogram(df):
+    """Plots a histogram of chosen column"""
+    fig = plt.figure(figsize=(5,5))
+    plt.hist(df_new[column_value])
+    st.pyplot(fig)
+    
+def plot_scatter(df):
+    """Plots scatter plot of chosen column"""
+    fig = plt.figure(figsize=(5,5))
+    plt.scatter(x=df_new['start_date'],y=df_new[column_value],s=1)
+    st.pyplot(fig)
+    
+if __name__ == '__main__':
+    column_dict = {"Average speed":"average_speed","Average heartrate":"average_heartrate","Distance":"distance"}
+    st.set_page_config(layout="wide")
+    st.title("Running")
+    df = pd.read_json(r"C:\\Users\\gregk\\OneDrive\\Documents\\Python Scripts\\running\\strava_data")
+    df = clean_df(df)
+    
+    start_date = st.sidebar.date_input("Start date",value = min(df['start_date']),min_value=min(df['start_date']),max_value =max(df['start_date']))
+    end_date = st.sidebar.date_input("End date",value = max(df['start_date']),min_value=min(df['start_date']),max_value=max(df['start_date']))
+    column_value = st.sidebar.selectbox("Choose column",["Average speed","Average heartrate","Distance"])
+    column_value = column_dict[column_value]
+    
+    df_new = df[['start_date',column_value]]
+    df_new = filter_by_dates(df_new,start_date,end_date)
+    
+    plot_histogram(df_new)
+    plot_scatter(df_new)
+    
