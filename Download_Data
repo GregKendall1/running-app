@@ -1,0 +1,112 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+import datetime
+import requests
+import urllib3
+import streamlit_themes as st_theme
+
+def get_all_data(page_number,client_id,client_secret,code_val):
+    """Downloads strava data and returns as dataframe"""
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    auth_url = 'https://www.strava.com/oauth/token'
+    activities_url = 'https://www.strava.com/api/v3/athlete/activities'
+    payload = {
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'code': code_val,
+        "grant_type" : "authorization_code",
+        'f': 'json'
+    }
+    st.write("Requesting Token...\n")
+    res = requests.post(auth_url, data=payload, verify=False)
+    
+    try:
+        refresh_token = res.json()["refresh_token"]
+    except:     #if authorisation code does not work
+        st.write("Please ensure you have entered the information correctly. Note that you will need to create a new authorisation code.")
+        return pd.DataFrame()
+    
+    payload = {"client_id" : client_id,
+    "client_secret" : client_secret,
+    "refresh_token" : refresh_token,
+    "grant_type" : "refresh_token",
+    "f" : "json"
+    }
+    
+    res = requests.post(auth_url, data=payload, verify=False)
+
+    access_token = res.json()['access_token']
+    st.write("Access Token = {}\n".format(access_token))
+
+    header = {'Authorization': 'Bearer ' + access_token}
+    param = {'per_page': 200, 'page': 1}
+    page_number = page_number
+    new_page = True
+    data = []
+    while new_page:
+        st.write(f'Collecting page {page_number}')
+        get_strava = requests.get(activities_url, headers=header, params={'per_page': 200, 'page': f'{page_number}'}).json()
+        data.extend(get_strava)
+        new_page = get_strava #if empty stop the loop
+        page_number += 1
+    df = pd.json_normalize(data)
+    st.write("Finished collecting data")
+    return df
+
+def process_df(df):
+    """Changes units of data and puts date into usable form"""
+    df[['moving_time','elapsed_time']] =  df[['moving_time','elapsed_time']].apply(seconds_to_minutes)
+    df['distance'] = df['distance'].apply(metres_to_miles)
+    df['start_date'] = df['start_date'].apply(get_date)
+    df['average_speed'] = df['average_speed'].apply(speed_to_min_per_mile)
+    return df
+
+def speed_to_min_per_mile(speed):
+    """Converts speed to minutes per mile"""
+    if speed != 0:
+        return 60/(speed*2.23694)
+    return 0
+
+def metres_to_miles(distance):
+    """Converts distance from metres to miles"""
+    return distance/1609.34
+
+def seconds_to_minutes(time):
+    """Converts time from seconds to minutes"""
+    return time/60
+
+def get_date(string):
+    """Returns date in cleaner form YYYY-MM-DD"""
+    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0)).date()
+
+st.set_page_config(layout="wide")
+st_theme.set_preset_theme('Sunset')
+st.title("Running")
+st.write("First we need to collect all of your running data! Follow the steps below:")
+st.markdown("- Go to [Strava](https://www.strava.com/settings/api), log in and create an app.")
+st.markdown("- Note down your Client ID and Client Secret.")
+client_id = st.text_input("- Please enter your Client ID:")
+client_secret = st.text_input("- Please enter your Client Secret:")
+st.markdown("- Go to the following URL, inserting your Client ID in the stated place: http://www.strava.com/oauth/authorize?client_id=[REPLACE_WITH_YOUR_CLIENT_ID]&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all")
+st.markdown("- This page will not load properly but do not worry! Look at the URL, which will look like this: http://localhost/exchange_token?state=&code=[COPY_THIS_CODE]&scope=read,activity:read_all,profile:read_all")
+st.markdown("- Note down the code in the URL which is indicated above.")
+code_val = st.text_input("Please enter the Authorisation Code:")
+if st.button("Collect data!"):
+    if not client_id:
+        st.write("Please ensure Client ID has been entered.")
+    elif not client_secret:
+        st.write("Please ensure Client Secret has been entered.")
+    elif not code_val:
+        st.write("Please ensure Authorisation Code has been entered.")
+    else:
+        df = get_all_data(1,client_id,client_secret,code_val)        #start at page 1
+        if not df.empty:
+            df = process_df(df)
+            st.session_state['df'] = df
+if "df" in st.session_state:
+    st.dataframe(st.session_state['df'])
+
+
