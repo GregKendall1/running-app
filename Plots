@@ -3,23 +3,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import re
 import datetime
+from datetime import date, timedelta
+import dayplot as dp
 
-def get_date(string):
-    """Return date in YYYY-MM-DD format"""
-    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0)).date()
-
-def group_weekly_average(df,column):
+def group_weekly_sum(df,column):
     grouped_df = df[['start_date',column]]
-    grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column].mean().reset_index().sort_values('start_date')
+    grouped_df['start_date'] = pd.to_datetime(grouped_df['start_date'])
+    grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column].sum().reset_index().sort_values('start_date')
     return grouped_df
 
-def speed_to_min_per_mile(speed):
-    """Converts speed to minutes per mile"""
-    if speed != 0:
-        return 60/(speed*2.23694)
-    return 0
+
+def get_weekday(date_):
+    """Returns the weekday from date as numerical value (0 = Monday, 6 = Sunday)"""
+    return date_.weekday()
+
+def filter_by_day(df,week_day):
+    """Filters dataframe by day of week"""
+    df = df[df['weekday']==week_day]
+    return df
 
 def filter_by_dates(df,start_date,end_date):
     """Filters dataframe between two given dates"""
@@ -28,40 +30,155 @@ def filter_by_dates(df,start_date,end_date):
 
 def clean_df(df):
     """Cleans dataframe in order to plot"""
-    df['start_date'] = df['start_date'].apply(get_date)
-    df['average_speed'] = df['average_speed'].apply(speed_to_min_per_mile)
     q1 = df['average_speed'].quantile(0.005)
     q2 = df['average_speed'].quantile(0.995)
     df = df[(df['average_speed'] <= q2)&(df['average_speed']>=q1)]
     return df
 
-def plot_histogram(df):
+def average_per_day(df,column_value):
+    output = [round(filter_by_day(df,i)[column_value].mean(),2) for i in range(0,7)]
+    return output
+    
+def plot_histogram(df_new):
     """Plots a histogram of chosen column"""
-    fig = plt.figure(figsize=(5,5))
-    plt.hist(df_new[column_value])
+    fig,ax = plt.subplots()
+    plt.hist(df_new[column_value],color='red')
+    plt.xlabel(keep_value + " ("+units_dict[keep_value]+")")
+    plt.ylabel("Number of runs")
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
     st.pyplot(fig)
     
-def plot_scatter(df):
+def plot_scatter(df_new):
     """Plots scatter plot of chosen column"""
-    fig = plt.figure(figsize=(5,5))
-    plt.scatter(x=df_new['start_date'],y=df_new[column_value],s=1)
+    fig,ax = plt.subplots()
+    plt.scatter(x=df_new['start_date'],y=df_new[column_value],s=1,color='red')
+    plt.xlabel("Date")
+    plt.ylabel(keep_value + " ("+units_dict[keep_value]+")")
+    plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right', fontsize='x-small')    #stop x labels from overlapping 
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
     st.pyplot(fig)
+    
+def plot_distance(df_grouped):
+    """Plots line chart of total weekly distance"""
+    fig, ax = plt.subplots(figsize=(15, 2.5))
+    plt.plot(df_grouped['start_date'], df_grouped['distance'],color='red')
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right', fontsize='x-small')    #stop x labels from overlapping 
+    plt.xlabel("Date")
+    plt.ylabel("Total weekly distance (miles)")
+    st.pyplot(fig)
+    
+def plot_heatmap(df):
+    """Plots a heatmap of chosen column for the current year to date"""
+    fig, ax = plt.subplots(figsize=(15, 6))
+    df = df.dropna(subset=[column_value])       #nan values break dayplot 
+    dp.calendar(
+        dates=df["start_date"],             #use df not df_new since not filtered by dates
+        values=df[column_value],
+        start_date=date(date.today().year, 1, 1),
+        end_date=date.today(),
+        ax=ax,
+        cmap="Reds",
+        boxstyle='round',
+        
+    )
+    
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    st.pyplot(fig)
+    
     
 if __name__ == '__main__':
-    column_dict = {"Average speed":"average_speed","Average heartrate":"average_heartrate","Distance":"distance"}
+    
+    column_dict = {"Average speed":"average_speed","Average heartrate":"average_heartrate","Distance":"distance","Moving time":"moving_time"}
+    weekday_dict = {0: 'Monday',1:'Tuesday',2:'Wednesday',3:'Thursday',4:'Friday',5:'Saturday',6:'Sunday'}
+    units_dict = {"Average speed":"min/mile","Average heartrate":"bpm","Distance":"miles","Moving time":"minutes"}
+    
     st.set_page_config(layout="wide")
-    st.title("Running")
-    df = pd.read_json(r"C:\\Users\\gregk\\OneDrive\\Documents\\Python Scripts\\running\\strava_data")
+    if "df" not in st.session_state:    #avoids errors if there is no data
+        st.error("Please download your Strava data first.")
+        st.stop()
+    st.title("Some information about your runs")
+    df = st.session_state.df
     df = clean_df(df)
-    
-    start_date = st.sidebar.date_input("Start date",value = min(df['start_date']),min_value=min(df['start_date']),max_value =max(df['start_date']))
-    end_date = st.sidebar.date_input("End date",value = max(df['start_date']),min_value=min(df['start_date']),max_value=max(df['start_date']))
-    column_value = st.sidebar.selectbox("Choose column",["Average speed","Average heartrate","Distance"])
-    column_value = column_dict[column_value]
-    
-    df_new = df[['start_date',column_value]]
+    df['weekday'] = df['start_date'].apply(get_weekday)
+    with st.sidebar:
+        #container appears first but logic will be implemented after to ensure their values update with button presses
+        container1 = st.container()
+        column_value = st.sidebar.selectbox("Choose column",["Average speed","Average heartrate","Distance","Moving time"])
+        keep_value = column_value                   #store value for ease of display
+        column_value = column_dict[column_value]
+        if st.button("Last 7 days"):
+            start_date = date.today() - timedelta(days = 7)
+            end_date = date.today() 
+            st.session_state['button'] = [start_date,end_date]
+        if st.button("Last 4 weeks"):
+            start_date = date.today() - timedelta(weeks = 4)
+            end_date = date.today() 
+            st.session_state['button'] = [start_date,end_date]
+        if st.button("Last 12 months"):
+            start_date = date.today() - timedelta(weeks = 52.14)
+            end_date = date.today()
+            st.session_state['button'] = [start_date,end_date]
+        with container1:
+            #updates labels on date_input if a button has been clicked
+            if 'button' in st.session_state:               
+                start_date = st.date_input("Start date",value = st.session_state['button'][0],min_value=min(df['start_date']),max_value =date.today())
+                end_date = st.date_input("End date", value = st.session_state['button'][1],min_value=min(df['start_date']),max_value=date.today())
+            else:       #if button has not yet been clicked 
+                start_date = st.date_input("Start date",value = min(df['start_date']),min_value=min(df['start_date']),max_value =date.today())
+                end_date = st.date_input("End date",value = date.today(),min_value=min(df['start_date']),max_value=date.today())
+            if end_date < start_date:
+                st.warning("Please enter an end date which is later than the start date. It will default to the current date.")
+                end_date = max(df['start_date'])
+    #avoid distance column appearing twice
+    if column_value == 'distance':
+        df_new = df[['start_date',column_value,'weekday','moving_time']]
+    elif column_value == "moving_time":
+        df_new = df[['start_date',column_value,'weekday','distance']]
+    else:
+        df_new = df[['start_date',column_value,'weekday','distance','moving_time']]
     df_new = filter_by_dates(df_new,start_date,end_date)
+    if df_new.empty:
+        st.error("No runs found in range!")
+        st.stop()
+        
+    #allow user to filter by a range of distances
+    if keep_value == "Distance":            
+        max_dist = round(max(df['distance']),2)
+        distance_range = st.slider("Select which distances to show",0.0,max_dist,value = (0.0,max_dist),step = 0.1)
+        df_new = df_new[(distance_range[0] <= df_new['distance'])&(df_new['distance']<=distance_range[1])]
+        if df_new.empty:
+            st.error("No runs found in range!")
+            st.stop()
     
-    plot_histogram(df_new)
-    plot_scatter(df_new)
+    ave_per_day = average_per_day(df_new,column_value)
+    day_of_week_max = weekday_dict[ave_per_day.index(np.nanmax(ave_per_day))]   
+    day_of_week_min = weekday_dict[ave_per_day.index(np.nanmin(ave_per_day))]
+    container = st.container(border=True)
+    with container:
+        container_col1,container_col2 = st.columns([3,1])
+        with container_col1:
+            if column_value == 'average_speed':         #fastest speed is lowest numerical value and vice versa
+                st.write("On average, ",day_of_week_max, " has your highest ",keep_value.lower()," with a value of ",np.nanmin(ave_per_day), units_dict[keep_value])
+                st.write("On the other hand, ",day_of_week_min, " has your lowest",keep_value.lower()," with a value of ",np.nanmax(ave_per_day), units_dict[keep_value])
+            else:
+                st.write("On average, ",day_of_week_max, " has your highest ",keep_value.lower()," with a value of ",np.nanmax(ave_per_day), units_dict[keep_value])
+                st.write("On the other hand, ",day_of_week_min, " has your lowest",keep_value.lower()," with a value of ",np.nanmin(ave_per_day), units_dict[keep_value])
+        with container_col2:
+            st.write("Total distance: ",round(df_new['distance'].sum(),2)," miles")
+            st.write("Total time: ",round(df_new['moving_time'].sum()/60,2)," hours")
+    col1, col2 = st.columns(2)
+    with col1:
+        plot_histogram(df_new)
+    with col2:
+        plot_scatter(df_new)
+    st.write("Your total weekly distance.")
+    df_grouped = group_weekly_sum(df_new,'distance')
+    plot_distance(df_grouped)
+    st.write("Heat map of ",keep_value.lower()," since the start of this year.")
+    plot_heatmap(df)
     
