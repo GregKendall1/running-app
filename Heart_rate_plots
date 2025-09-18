@@ -1,59 +1,13 @@
 import pandas as pd
-import seaborn as sns
-import os
-import re
 from datetime import datetime as dt
 from datetime import date, timedelta
 import matplotlib.pyplot as plt
 import streamlit as st
 
-def speed_to_min_per_mile(speed):
-    """Converts speed to minutes per mile"""
-    if speed != 0:
-        return 60/(speed*2.23694)
-    return 0
-
-def get_date(string):
-    """Return date in YYYY-MM-DD format"""
-    return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0)).date()
-
-def get_intervals(start_date):
-    if type(start_date) == str:
-        start_date = dt.strptime(start_date, '%Y-%m-%d')
-    interval = 7
-    int_end = start_date + timedelta(days = interval)
-    interval_list = [start_date,int_end]
-    while int_end <= dt.now():
-        int_end += timedelta(days = interval)
-        interval_list.append(int_end)
-    return interval_list
-
 def filter_by_date(start_date,end_date,df):
     """Filters the dataframe between two given dates"""
-    # start_date = dt.strptime(start_date, '%Y-%m-%d')
-    # end_date = dt.strptime(end_date,'%Y-%m-%d')
     df = df[(df['start_date']>= start_date)&(df['start_date']<= end_date)]
     return df
-
-def round_distance(distance):
-    """Rounds distance to neratest 2 decimal places"""
-    return round(distance,2)
-
-def get_start_end_dates(df):
-    """Finds date of first and last activities"""
-    return min(df['start_date']),max(df['start_date'])
-
-def group_weekly_sum(df,column):
-    """Returns dataframe grouped weekly and summing given column value"""
-    grouped_df = df[['start_date',column]]
-    grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column].sum().reset_index().sort_values('start_date')
-    return grouped_df
-
-def group_weekly(df,column):
-    """Returns dataframe grouped weekly"""
-    grouped_df = df[['start_date',column]]
-    grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column]
-    return grouped_df
 
 def group_weekly_average(df,column):
     """Returns dataframe grouped weekly and averaging given column value"""
@@ -62,46 +16,96 @@ def group_weekly_average(df,column):
     grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])[column].mean().reset_index().sort_values('start_date')
     return grouped_df
 
-# def group_weekly_distance(df):
-#     grouped_df = df[['start_date','distance']]
-#     grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])['distance'].sum().reset_index().sort_values('start_date')
-#     return grouped_df
-
-# def group_weekly_speed(df):
-#     grouped_df = df[['start_date','average_speed']]
-#     grouped_df = grouped_df.groupby([pd.Grouper(key='start_date', freq='W-MON')])['average_speed'].mean().reset_index().sort_values('start_date')
-#     return grouped_df
-
-def get_heart_rate(df):
-    heart_rate_df = df[['start_date','average_heartrate']]
-    return heart_rate_df
-
 def plot_avg_hr_zones(df):
     """Plots average of each heart rate zone weekly"""
     fig = plt.figure(figsize=(5,5))
-    for i in range(1,5):
+    for i in range(1,6):
         df_filter = df[(heart_rate_zones[i-1] <=df['average_heartrate'])&(df['average_heartrate'] <= heart_rate_zones[i])]
         df_filter = group_weekly_average(df_filter,'average_heartrate')
         plt.plot(df_filter['start_date'],df_filter['average_heartrate'],'-o')
+    # Put legend below current axis
+    ax.legend(labels=["Zone 1","Zone 2","Zone 3","Zone 4","Zone 5"],loc='upper center', bbox_to_anchor=(0.5, -0.2),fancybox=False, shadow=False, ncol=5,framealpha=0)
+    plt.xlabel("Date")
+    plt.ylabel("Average heart rate (bpm)")
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right', fontsize='x-small')    #ensure x labels don't overlap
     st.pyplot(fig)
     
 def plot_heart_rate_pie_chart(df):
     """Plots a pie chart showing proportion of runs in each zone"""
     fig = plt.figure(figsize=(5,5))
-    df['bins'] = pd.cut(df['average_heartrate'],bins=heart_rate_zones, labels=["Zone 1","Zone 2","Zone 3","Zone 4"])
+    df['bins'] = pd.cut(df['average_heartrate'],bins=heart_rate_zones, labels=["Zone 1","Zone 2","Zone 3","Zone 4","Zone 5"])
     bin_percent = pd.DataFrame(df['bins'].value_counts(normalize=True) * 100).reset_index()
     plt.pie(bin_percent['proportion'],labels=bin_percent['bins'],autopct='%1.1f%%')
+    fig.patch.set_alpha(0)
     st.pyplot(fig)
     
-    
+def check_heartrate(max_heartrate):
+    """Check if heart rate which has been entered is numerical and greater than minimum seen heart rate"""
+    try:
+        max_heartrate = int(max_heartrate)
+    except:
+        st.error("Please enter a numerical value as the max heart rate.")
+        return False
+    if max_heartrate < min(df['average_heartrate']) :
+        st.error(f"Please enter your maximum heart rate correctly. The maximum average heart rate in your runs is {max(df['average_heartrate'])}.")   
+        return False
+    else:
+        return True
+
 if __name__ == '__main__':
-    heart_rate_zones = [0,130,145,165,200]
-    df = pd.read_json(r"C:\\Users\\gregk\\OneDrive\\Documents\\Python Scripts\\running\\strava_data")
-    df['start_date'] = df['start_date'].apply(get_date)
+    if "df" not in st.session_state:
+        st.error("Please download your Strava data first.")
+        st.stop()
+    heart_rate_zones = [0,130,145,165,190,200]  #set default values 
+
+    df = st.session_state.df
+    #only need to look at activities which have heart rate data for this page
+    df = df[df['has_heartrate']==True]      
     st.title("Heart rate plots")
-    start_date = st.sidebar.date_input("Start date",value = min(df['start_date']),min_value=min(df['start_date']),max_value =max(df['start_date']))
-    end_date = st.sidebar.date_input("End date",value = max(df['start_date']),min_value=min(df['start_date']),max_value=max(df['start_date']))
+    max_heartrate = st.text_input("Please enter your maximum heart rate:")
+    with st.sidebar:
+        st.header("Choose dates")
+        container1 = st.container()
+        if st.button("Last 7 days"):
+            start_date = date.today() - timedelta(days = 7)
+            end_date = date.today() 
+            st.session_state['button'] = [start_date,end_date]
+        if st.button("Last 4 weeks"):
+            start_date = date.today() - timedelta(weeks = 4)
+            end_date = date.today() 
+            st.session_state['button'] = [start_date,end_date]
+        if st.button("Last 12 months"):
+            start_date = date.today() - timedelta(weeks = 52.14)
+            end_date = date.today()
+            st.session_state['button'] = [start_date,end_date]
+        with container1:
+            if 'button' in st.session_state:    #updates labels if a button has been clicked            
+                start_date = st.date_input("Start date",value = st.session_state['button'][0],min_value=min(df['start_date']),max_value =date.today())
+                end_date = st.date_input("End date", value = st.session_state['button'][1],min_value=min(df['start_date']),max_value=date.today())
+            else:
+                start_date = st.date_input("Start date",value = min(df['start_date']),min_value=min(df['start_date']),max_value =date.today())
+                end_date = st.date_input("End date",value = date.today(),min_value=min(df['start_date']),max_value=date.today())
+            if end_date < start_date:
+                st.warning("Please enter an end date which is later than the start date. It will default to the current date.")
+                end_date = max(df['start_date'])
     df = filter_by_date(start_date,end_date,df)
-    plot_avg_hr_zones(df)
-    plot_heart_rate_pie_chart(df)
+    if df.empty:
+        st.error("No runs found in range!")
+        st.stop()
+    if check_heartrate(max_heartrate):      #if max heart rate has 'reasonable' value 
+        max_heartrate = int(max_heartrate)
+        heart_rate_zones = [0,max_heartrate*0.6,max_heartrate*0.7,max_heartrate*0.82,max_heartrate*0.92,max_heartrate]
+        if max_heartrate < max(df['average_heartrate']):
+            st.warning("You have entered a maximum heart rate which is lower than the maximum heart rate in your run data. Please check if this is correct.")
+        col1,col2 = st.columns(2)
+        with col1:
+            st.write("The following shows the average heartrate in each zone every week.")
+            plot_avg_hr_zones(df)
+        with col2:
+            st.write("The following shows you how much time you spend in each heart rate zone overall.")
+            plot_heart_rate_pie_chart(df)
+       
+
    
