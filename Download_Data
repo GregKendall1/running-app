@@ -119,14 +119,14 @@ if __name__ == '__main__':
     if "df" in st.session_state:
         st.write("Explore the raw data here!")
         st.dataframe(st.session_state['df'])
-    with st.sidebar:
-        #if theme has been selected by user previously, ensure label of selectbox is up to date
+    with st.sidebar:    
+        #update label on selectbox according to chosen theme 
         if 'theme' in st.session_state:
             theme = st.selectbox('Choose theme',['Sunset','Beach','Pineapple','Green','Ocean','Mater'],index=theme_list.index(st.session_state['theme']))
-            st.session_state['theme']=theme
         else:       #label defaults to default theme
             theme = st.selectbox('Choose theme',['Sunset','Beach','Pineapple','Green','Ocean','Mater'])
-        st_theme.set_preset_theme(theme)
         #need to click button to update page 
-        st.button("Change theme!")
+        if st.button("Change theme!"):
+            st.session_state['theme']=theme
+            st.rerun()
 
