@@ -62,6 +62,8 @@ def process_df(df):
     df['distance'] = df['distance'].apply(metres_to_miles)
     df['start_date'] = df['start_date'].apply(get_date)
     df['average_speed'] = df['average_speed'].apply(speed_to_min_per_mile)
+    #only consider running activities
+    df = df[df['sport_type'] =='Run']
     return df
 
 def speed_to_min_per_mile(speed):
@@ -82,31 +84,49 @@ def get_date(string):
     """Returns date in cleaner form YYYY-MM-DD"""
     return pd.to_datetime(re.search("([0-9]{4}\-[0-9]{2}\-[0-9]{2})",string).group(0)).date()
 
-st.set_page_config(layout="wide")
-st_theme.set_preset_theme('Sunset')
-st.title("Running")
-st.write("First we need to collect all of your running data! Follow the steps below:")
-st.markdown("- Go to [Strava](https://www.strava.com/settings/api), log in and create an app.")
-st.markdown("- Note down your Client ID and Client Secret.")
-client_id = st.text_input("- Please enter your Client ID:")
-client_secret = st.text_input("- Please enter your Client Secret:")
-st.markdown("- Go to the following URL, inserting your Client ID in the stated place: http://www.strava.com/oauth/authorize?client_id=[REPLACE_WITH_YOUR_CLIENT_ID]&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all")
-st.markdown("- This page will not load properly but do not worry! Look at the URL, which will look like this: http://localhost/exchange_token?state=&code=[COPY_THIS_CODE]&scope=read,activity:read_all,profile:read_all")
-st.markdown("- Note down the code in the URL which is indicated above.")
-code_val = st.text_input("Please enter the Authorisation Code:")
-if st.button("Collect data!"):
-    if not client_id:
-        st.write("Please ensure Client ID has been entered.")
-    elif not client_secret:
-        st.write("Please ensure Client Secret has been entered.")
-    elif not code_val:
-        st.write("Please ensure Authorisation Code has been entered.")
-    else:
-        df = get_all_data(1,client_id,client_secret,code_val)        #start at page 1
-        if not df.empty:
-            df = process_df(df)
-            st.session_state['df'] = df
-if "df" in st.session_state:
-    st.dataframe(st.session_state['df'])
 
+if __name__ == '__main__':
+    theme_list = ['Sunset','Beach','Pineapple','Green','Ocean','Mater']
+    st.set_page_config(layout="wide")
+    #if theme has been chosen by user
+    if 'theme' in st.session_state:
+        theme=st.session_state['theme']
+    else:   #default to sunset theme
+        theme = 'Sunset'
+    st_theme.set_preset_theme('Sunset')
+    st.title("Running")
+    st.write("First we need to collect all of your running data! Follow the steps below:")
+    st.markdown("- Go to [Strava](https://www.strava.com/settings/api), log in and create an app.")
+    st.markdown("- Note down your Client ID and Client Secret.")
+    client_id = st.text_input("- Please enter your Client ID:")
+    client_secret = st.text_input("- Please enter your Client Secret:")
+    st.markdown("- Go to the following URL, inserting your Client ID in the stated place: http://www.strava.com/oauth/authorize?client_id=[REPLACE_WITH_YOUR_CLIENT_ID]&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all")
+    st.markdown("- This page will not load properly but do not worry! Look at the URL, which will look like this: http://localhost/exchange_token?state=&code=[COPY_THIS_CODE]&scope=read,activity:read_all,profile:read_all")
+    st.markdown("- Note down the code in the URL which is indicated above.")
+    code_val = st.text_input("Please enter the Authorisation Code:")
+    if st.button("Collect data!"):
+        if not client_id:
+            st.write("Please ensure Client ID has been entered.")
+        elif not client_secret:
+            st.write("Please ensure Client Secret has been entered.")
+        elif not code_val:
+            st.write("Please ensure Authorisation Code has been entered.")
+        else:
+            df = get_all_data(1,client_id,client_secret,code_val)        #start at page 1
+            if not df.empty:
+                df = process_df(df)
+                st.session_state['df'] = df
+    if "df" in st.session_state:
+        st.write("Explore the raw data here!")
+        st.dataframe(st.session_state['df'])
+    with st.sidebar:
+        #if theme has been selected by user previously, ensure label of selectbox is up to date
+        if 'theme' in st.session_state:
+            theme = st.selectbox('Choose theme',['Sunset','Beach','Pineapple','Green','Ocean','Mater'],index=theme_list.index(st.session_state['theme']))
+            st.session_state['theme']=theme
+        else:       #label defaults to default theme
+            theme = st.selectbox('Choose theme',['Sunset','Beach','Pineapple','Green','Ocean','Mater'])
+        st_theme.set_preset_theme(theme)
+        #need to click button to update page 
+        st.button("Change theme!")
 
